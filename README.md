@@ -1,3 +1,9 @@
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+"# CertiTrack" 
+=======
+>>>>>>> 0a3b1fa (first commit)
 # CertiTrack
 
 Production-ready React + Vite web app with Firebase Auth, Firestore, and Storage for certificate lifecycle management.
@@ -33,3 +39,7 @@ Production-ready React + Vite web app with Firebase Auth, Firestore, and Storage
 
 ## Firebase Security
 Use provided `firestore.rules` and deploy rules to Firestore.
+<<<<<<< HEAD
+=======
+>>>>>>> 61c6564 (First commit)
+>>>>>>> 0a3b1fa (first commit)
