@@ -4,23 +4,11 @@ import { useAuth } from "../../contexts/AuthContext";
 import { db } from "../../firebase";
 import PieChart from "../../components/PieChart";
 import BarChart from "../../components/BarChart";
+import { buildDemoDocumentRecord } from "../../utils/demoDocumentProfiles";
 
 const DEMO_CERT_TOTAL = 30;
-const ISSUERS = ["AWS", "Cisco", "Google", "Microsoft", "Oracle", "Coursera", "ServiceNow"];
-const CATEGORIES = ["Cloud", "Networking", "Security", "Data", "DevOps", "IT Support"];
-const TITLES = [
-  "Solutions Architect",
-  "Cloud Practitioner",
-  "Security Analyst",
-  "Network Associate",
-  "Data Engineer",
-  "DevOps Engineer",
-  "System Administrator",
-];
 
 const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-const pick = (items) => items[randInt(0, items.length - 1)];
-const toIso = (date) => date.toISOString().slice(0, 10);
 
 const randomDateBetween = (start, end) =>
   new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
@@ -34,20 +22,13 @@ const buildDemoUsers = () => {
   }));
 };
 
-const buildDemoCert = (id, ownerId, expiryDate) => {
-  const issueDate = randomDateBetween(new Date(2023, 0, 1), new Date(2025, 5, 1));
-  return {
+const buildDemoCert = (id, ownerId, expiryDate) =>
+  buildDemoDocumentRecord({
     id,
     uid: ownerId,
-    userId: ownerId,
-    title: `${pick(TITLES)} ${id.replace("demo-cert-", "")}`,
-    issuer: pick(ISSUERS),
-    category: pick(CATEGORIES),
-    issueDate: toIso(issueDate),
-    expiryDate: toIso(expiryDate),
-    verified: Math.random() < 0.7,
-  };
-};
+    expiryDate,
+    allowNoExpiryProfile: false,
+  });
 
 const createDemoDataset = () => {
   const users = buildDemoUsers();
@@ -211,7 +192,7 @@ export default function AdminDashboard() {
 
       {useDemoData && (
         <p style={{ marginBottom: 10, fontSize: 13, opacity: 0.8 }}>
-          Demo mode includes random analytics with guaranteed: 2 expired and 2 renewal certificates.
+          Demo mode includes random analytics with guaranteed expired and renewal records across all document types.
         </p>
       )}
 

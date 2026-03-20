@@ -2,24 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import BarChart from "../../components/BarChart";
 import { db } from "../../firebase";
+import { buildDemoDocumentRecord } from "../../utils/demoDocumentProfiles";
 
 const DEMO_ADMIN_COUNT = 1;
 const DEMO_CERT_TOTAL = 30;
 
-const ISSUERS = ["AWS", "Cisco", "Coursera", "Google", "Microsoft", "Oracle", "ServiceNow"];
-const CATEGORIES = ["Cloud", "Networking", "Security", "Data", "DevOps", "Project Management"];
-const TITLES = [
-  "Solutions Architect",
-  "Data Engineer",
-  "Security Analyst",
-  "Network Associate",
-  "Cloud Practitioner",
-  "DevOps Engineer",
-  "System Administrator",
-];
-
 const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-const pick = (items) => items[randInt(0, items.length - 1)];
 
 const toIso = (date) => date.toISOString().slice(0, 10);
 
@@ -53,17 +41,15 @@ const buildRandomCerts = (totalCerts, users) => {
     const owner = users[randInt(0, users.length - 1)];
     const certNo = String(i + 1).padStart(3, "0");
 
-    certs.push({
-      id: `demo-cert-${certNo}`,
-      uid: owner.id,
-      userId: owner.id,
-      title: `${pick(TITLES)} ${certNo}`,
-      issuer: pick(ISSUERS),
-      category: pick(CATEGORIES),
-      issueDate: toIso(issueDateObj),
-      expiryDate: toIso(expiryDateObj),
-      verified: Math.random() < 0.65,
-    });
+    certs.push(
+      buildDemoDocumentRecord({
+        id: `demo-cert-${certNo}`,
+        uid: owner.id,
+        expiryDate: expiryDateObj,
+        issueDateRangeStart: new Date(2023, 0, 1),
+        issueDateRangeEnd: issueDateObj,
+      })
+    );
   }
 
   return certs;
@@ -179,7 +165,7 @@ export default function AdminPanel() {
 
       {useDemoData && (
         <p style={{ marginTop: 8, fontSize: 13, opacity: 0.8 }}>
-          Demo mode is ON: Admins = 1 and Total Certificates = 30 with randomized details.
+          Demo mode is ON: Admins = 1 and total records = 30 with mixed certificate/document details.
         </p>
       )}
 

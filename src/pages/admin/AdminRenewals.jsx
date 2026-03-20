@@ -1,23 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchCertificates, updateCertificate } from "../../services/certificateService";
 import BarChart from "../../components/BarChart";
+import { buildDemoDocumentRecord } from "../../utils/demoDocumentProfiles";
+import { isAllowedFile } from "../../utils/certificateUtils";
 
 const DEMO_CERT_TOTAL = 30;
-const ISSUERS = ["AWS", "Cisco", "Google", "Microsoft", "Oracle", "Coursera", "ServiceNow"];
-const CATEGORIES = ["Cloud", "Networking", "Security", "Data", "DevOps", "IT Support"];
-const TITLES = [
-  "Solutions Architect",
-  "Cloud Practitioner",
-  "Security Analyst",
-  "Network Associate",
-  "Data Engineer",
-  "DevOps Engineer",
-  "System Administrator",
-];
 
 const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-const pick = (items) => items[randInt(0, items.length - 1)];
-const toIso = (date) => date.toISOString().slice(0, 10);
 
 const randomDateBetween = (start, end) =>
   new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
@@ -38,59 +27,54 @@ const buildDemoRenewalData = () => {
 
   for (let i = 0; i < 5; i += 1) {
     const expiry = randomDateBetween(new Date(now.getFullYear() - 1, 0, 1), new Date(now.getTime() - 86400000));
-    certs.push({
-      id: mkId(),
-      uid: owner(),
-      title: `${pick(TITLES)} E${i + 1}`,
-      issuer: pick(ISSUERS),
-      category: pick(CATEGORIES),
-      issueDate: toIso(randomDateBetween(new Date(2023, 0, 1), new Date(2025, 5, 1))),
-      expiryDate: toIso(expiry),
-      verified: Math.random() < 0.7,
-    });
+    certs.push(
+      buildDemoDocumentRecord({
+        id: mkId(),
+        uid: owner(),
+        expiryDate: expiry,
+        allowNoExpiryProfile: false,
+        titleSuffix: `E${i + 1}`,
+      })
+    );
   }
 
   for (let i = 0; i < 8; i += 1) {
     const expiry = randomDateBetween(new Date(now.getTime() + 86400000), new Date(now.getTime() + 30 * 86400000));
-    certs.push({
-      id: mkId(),
-      uid: owner(),
-      title: `${pick(TITLES)} U${i + 1}`,
-      issuer: pick(ISSUERS),
-      category: pick(CATEGORIES),
-      issueDate: toIso(randomDateBetween(new Date(2023, 0, 1), new Date(2025, 5, 1))),
-      expiryDate: toIso(expiry),
-      verified: Math.random() < 0.7,
-    });
+    certs.push(
+      buildDemoDocumentRecord({
+        id: mkId(),
+        uid: owner(),
+        expiryDate: expiry,
+        allowNoExpiryProfile: false,
+        titleSuffix: `U${i + 1}`,
+      })
+    );
   }
 
   for (let i = 0; i < 7; i += 1) {
     const expiry = randomDateBetween(new Date(now.getTime() + 31 * 86400000), new Date(now.getTime() + 60 * 86400000));
-    certs.push({
-      id: mkId(),
-      uid: owner(),
-      title: `${pick(TITLES)} N${i + 1}`,
-      issuer: pick(ISSUERS),
-      category: pick(CATEGORIES),
-      issueDate: toIso(randomDateBetween(new Date(2023, 0, 1), new Date(2025, 5, 1))),
-      expiryDate: toIso(expiry),
-      verified: Math.random() < 0.7,
-    });
+    certs.push(
+      buildDemoDocumentRecord({
+        id: mkId(),
+        uid: owner(),
+        expiryDate: expiry,
+        allowNoExpiryProfile: false,
+        titleSuffix: `N${i + 1}`,
+      })
+    );
   }
 
   for (let i = certs.length; i < DEMO_CERT_TOTAL; i += 1) {
     const noExpiry = Math.random() < 0.15;
     const expiry = randomDateBetween(new Date(now.getTime() + 61 * 86400000), new Date(now.getTime() + 420 * 86400000));
-    certs.push({
-      id: mkId(),
-      uid: owner(),
-      title: `${pick(TITLES)} V${i + 1}`,
-      issuer: pick(ISSUERS),
-      category: pick(CATEGORIES),
-      issueDate: toIso(randomDateBetween(new Date(2023, 0, 1), new Date(2025, 5, 1))),
-      expiryDate: noExpiry ? null : toIso(expiry),
-      verified: Math.random() < 0.7,
-    });
+    certs.push(
+      buildDemoDocumentRecord({
+        id: mkId(),
+        uid: owner(),
+        expiryDate: noExpiry ? null : expiry,
+        titleSuffix: `V${i + 1}`,
+      })
+    );
   }
 
   return certs;
@@ -103,6 +87,8 @@ export default function AdminRenewals() {
   const [liveItems, setLiveItems] = useState([]);
   const [selected, setSelected] = useState(null);
   const [newExpiry, setNewExpiry] = useState("");
+  const [renewProofFile, setRenewProofFile] = useState(null);
+  const [renewProofInputKey, setRenewProofInputKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [useDemoData, setUseDemoData] = useState(true);
   const [demoItems, setDemoItems] = useState(() => buildDemoRenewalData());
@@ -110,7 +96,7 @@ export default function AdminRenewals() {
   const load = async (mounted = { v: true }) => {
     try {
       setLoading(true);
-      const data = await fetchCertificates(null, true);
+      const data = await fetchCertificates(null, "admin");
       if (mounted.v) setLiveItems(data || []);
     } catch (err) {
       console.error("AdminRenewals load failed", err);
@@ -144,6 +130,12 @@ export default function AdminRenewals() {
 
   const renewNow = async () => {
     if (!selected || !newExpiry) return;
+
+    if (renewProofFile && !isAllowedFile(renewProofFile)) {
+      alert("Invalid file. Use PDF/PNG/JPG up to 5MB.");
+      return;
+    }
+
     try {
       if (useDemoData) {
         setDemoItems((prev) =>
@@ -152,18 +144,25 @@ export default function AdminRenewals() {
               ? {
                   ...item,
                   expiryDate: newExpiry,
+                  proofUrl: renewProofFile ? URL.createObjectURL(renewProofFile) : item.proofUrl || "",
                 }
               : item
           )
         );
       } else {
-        await updateCertificate(selected.id, { ...selected, expiryDate: newExpiry });
-        const data = await fetchCertificates(null, true);
+        await updateCertificate(
+          selected.id,
+          { ...selected, uid: selected.uid || selected.userId || "admin-upload", expiryDate: newExpiry },
+          renewProofFile || null
+        );
+        const data = await fetchCertificates(null, "admin");
         setLiveItems(data || []);
       }
 
       setSelected(null);
       setNewExpiry("");
+      setRenewProofFile(null);
+      setRenewProofInputKey((k) => k + 1);
     } catch (err) {
       console.error("Admin renew failed", err);
       alert(`Failed to update renewal: ${err?.message || err}`);
@@ -196,6 +195,8 @@ export default function AdminRenewals() {
   useEffect(() => {
     setSelected(null);
     setNewExpiry("");
+    setRenewProofFile(null);
+    setRenewProofInputKey((k) => k + 1);
   }, [useDemoData]);
 
   return (
@@ -224,7 +225,7 @@ export default function AdminRenewals() {
 
       {useDemoData && (
         <p style={{ marginBottom: 10, fontSize: 13, opacity: 0.8 }}>
-          Demo mode is ON with random renewal data (expired, urgent, upcoming, and no-expiry).
+          Demo mode is ON with random renewal data for certificates, personal documents, and compliance records.
         </p>
       )}
 
@@ -259,7 +260,16 @@ export default function AdminRenewals() {
               <span>
                 {item.title} - {item.issuer} - <b style={{ fontSize: 12 }}>{item.uid || item.userId || "uid?"}</b>
               </span>
-              <button onClick={() => setSelected(item)}>Renew / Update</button>
+              <button
+                onClick={() => {
+                  setSelected(item);
+                  setNewExpiry(item.expiryDate || "");
+                  setRenewProofFile(null);
+                  setRenewProofInputKey((k) => k + 1);
+                }}
+              >
+                Renew / Update
+              </button>
             </div>
           ))}
 
@@ -271,8 +281,14 @@ export default function AdminRenewals() {
         <div className="glass-card modal-like" style={{ marginTop: 12 }}>
           <h3>Renew: {selected.title}</h3>
           <input type="date" value={newExpiry} onChange={(e) => setNewExpiry(e.target.value)} />
+          <input
+            key={renewProofInputKey}
+            type="file"
+            accept=".pdf,.png,.jpg,.jpeg"
+            onChange={(e) => setRenewProofFile(e.target.files?.[0] || null)}
+          />
           <button className="btn-primary" onClick={renewNow}>
-            Update Renewal
+            Update Renewal + PDF
           </button>
         </div>
       )}

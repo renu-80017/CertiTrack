@@ -3,23 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { fetchCertificates, updateCertificate } from "../../services/certificateService";
 import BarChart from "../../components/BarChart";
+import { buildDemoDocumentRecord } from "../../utils/demoDocumentProfiles";
+import { isAllowedFile } from "../../utils/certificateUtils";
 
 const DEMO_CERT_TOTAL = 20;
-const ISSUERS = ["AWS", "Cisco", "Google", "Microsoft", "Oracle", "Coursera", "ServiceNow"];
-const CATEGORIES = ["Cloud", "Networking", "Security", "Data", "DevOps", "IT Support"];
-const TITLES = [
-  "Solutions Architect",
-  "Cloud Practitioner",
-  "Security Analyst",
-  "Network Associate",
-  "Data Engineer",
-  "DevOps Engineer",
-  "System Administrator",
-];
 
-const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-const pick = (items) => items[randInt(0, items.length - 1)];
-const toIso = (date) => date.toISOString().slice(0, 10);
 const randomDateBetween = (start, end) =>
   new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
 
@@ -43,48 +31,42 @@ const buildDemoRenewalData = (uid = "demo-user") => {
 
   for (let i = 0; i < 4; i += 1) {
     const expiry = randomDateBetween(new Date(now.getFullYear() - 1, 0, 1), new Date(now.getTime() - 86400000));
-    certs.push({
-      id: mkId(),
-      uid,
-      userId: uid,
-      title: `${pick(TITLES)} E${i + 1}`,
-      issuer: pick(ISSUERS),
-      category: pick(CATEGORIES),
-      issueDate: toIso(randomDateBetween(new Date(2023, 0, 1), new Date(2025, 5, 1))),
-      expiryDate: toIso(expiry),
-      verified: Math.random() < 0.7,
-    });
+    certs.push(
+      buildDemoDocumentRecord({
+        id: mkId(),
+        uid,
+        expiryDate: expiry,
+        allowNoExpiryProfile: false,
+        titleSuffix: `E${i + 1}`,
+      })
+    );
   }
 
   for (let i = 0; i < 6; i += 1) {
     const expiry = randomDateBetween(new Date(now.getTime() + 86400000), new Date(now.getTime() + 30 * 86400000));
-    certs.push({
-      id: mkId(),
-      uid,
-      userId: uid,
-      title: `${pick(TITLES)} U${i + 1}`,
-      issuer: pick(ISSUERS),
-      category: pick(CATEGORIES),
-      issueDate: toIso(randomDateBetween(new Date(2023, 0, 1), new Date(2025, 5, 1))),
-      expiryDate: toIso(expiry),
-      verified: Math.random() < 0.7,
-    });
+    certs.push(
+      buildDemoDocumentRecord({
+        id: mkId(),
+        uid,
+        expiryDate: expiry,
+        allowNoExpiryProfile: false,
+        titleSuffix: `U${i + 1}`,
+      })
+    );
   }
 
   while (certs.length < DEMO_CERT_TOTAL) {
     const noExpiry = Math.random() < 0.18;
     const expiry = randomDateBetween(new Date(now.getTime() + 31 * 86400000), new Date(now.getTime() + 420 * 86400000));
-    certs.push({
-      id: mkId(),
-      uid,
-      userId: uid,
-      title: `${pick(TITLES)} N${certs.length + 1}`,
-      issuer: pick(ISSUERS),
-      category: pick(CATEGORIES),
-      issueDate: toIso(randomDateBetween(new Date(2023, 0, 1), new Date(2025, 5, 1))),
-      expiryDate: noExpiry ? null : toIso(expiry),
-      verified: Math.random() < 0.7,
-    });
+    certs.push(
+      buildDemoDocumentRecord({
+        id: mkId(),
+        uid,
+        expiryDate: noExpiry ? null : expiry,
+        allowNoExpiryProfile: true,
+        titleSuffix: `N${certs.length + 1}`,
+      })
+    );
   }
 
   return certs;
@@ -99,7 +81,10 @@ export default function RenewalsPage() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
   const [newExpiry, setNewExpiry] = useState("");
+  const [renewProofFile, setRenewProofFile] = useState(null);
+  const [renewProofInputKey, setRenewProofInputKey] = useState(0);
   const [courseQuery, setCourseQuery] = useState("");
+  const [quickTitle, setQuickTitle] = useState("");
 
   const load = async (mounted = { v: true }) => {
     try {
@@ -143,19 +128,39 @@ export default function RenewalsPage() {
 
   const renewNow = async () => {
     if (!selected || !user?.uid || !newExpiry) return;
+
+    if (renewProofFile && !isAllowedFile(renewProofFile)) {
+      alert("Invalid file. Use PDF/PNG/JPG up to 5MB.");
+      return;
+    }
+
     try {
       if (useDemoData) {
         setDemoItems((prev) =>
-          prev.map((item) => (item.id === selected.id ? { ...item, expiryDate: newExpiry } : item))
+          prev.map((item) =>
+            item.id === selected.id
+              ? {
+                  ...item,
+                  expiryDate: newExpiry,
+                  proofUrl: renewProofFile ? URL.createObjectURL(renewProofFile) : item.proofUrl || "",
+                }
+              : item
+          )
         );
       } else {
-        await updateCertificate(selected.id, { ...selected, uid: user.uid, expiryDate: newExpiry });
+        await updateCertificate(
+          selected.id,
+          { ...selected, uid: user.uid, expiryDate: newExpiry },
+          renewProofFile || null
+        );
         const data = await fetchCertificates(user.uid);
         setLiveItems(data || []);
       }
 
       setSelected(null);
       setNewExpiry("");
+      setRenewProofFile(null);
+      setRenewProofInputKey((k) => k + 1);
     } catch (err) {
       console.error("Renew now failed", err);
       alert(`Failed to update renewal: ${err?.message || err}`);
@@ -186,11 +191,13 @@ export default function RenewalsPage() {
 
   const goToCertificatesWithQuery = () => {
     const text = courseQuery.trim();
-    if (!text) {
-      alert("Type a course name first.");
+    const resolvedTitle = quickTitle.trim() || text;
+    if (!resolvedTitle) {
+      alert("Type certificate title or course name first.");
       return;
     }
-    navigate(`/certificates?course=${encodeURIComponent(text)}`);
+    navigate(`/certificates?course=${encodeURIComponent(resolvedTitle)}`);
+    setQuickTitle("");
   };
 
   const issuerBarData = useMemo(() => {
@@ -256,7 +263,7 @@ export default function RenewalsPage() {
 
       {useDemoData && (
         <p style={{ marginBottom: 10, fontSize: 13, opacity: 0.8 }}>
-          Demo mode is ON with random renewals data.
+          Demo mode is ON with random renewals data across certificates and personal/legal documents.
         </p>
       )}
 
@@ -269,6 +276,11 @@ export default function RenewalsPage() {
             placeholder="Type course/provider name (example: Coursera)"
             value={courseQuery}
             onChange={(e) => setCourseQuery(e.target.value)}
+          />
+          <input
+            placeholder="Certificate title (optional)"
+            value={quickTitle}
+            onChange={(e) => setQuickTitle(e.target.value)}
           />
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button type="button" className="btn-secondary" onClick={openGoogleSearch}>
@@ -313,7 +325,16 @@ export default function RenewalsPage() {
               <span>
                 {item.title} - {item.issuer}
               </span>
-              <button onClick={() => setSelected(item)}>{key === "upcoming" ? "Set Reminder" : "Renew Now"}</button>
+              <button
+                onClick={() => {
+                  setSelected(item);
+                  setNewExpiry(item.expiryDate || "");
+                  setRenewProofFile(null);
+                  setRenewProofInputKey((k) => k + 1);
+                }}
+              >
+                {key === "upcoming" ? "Set Reminder" : "Renew Now"}
+              </button>
             </div>
           ))}
 
@@ -325,8 +346,14 @@ export default function RenewalsPage() {
         <div className="glass-card modal-like">
           <h3>Renew: {selected.title}</h3>
           <input type="date" value={newExpiry} onChange={(e) => setNewExpiry(e.target.value)} />
+          <input
+            key={renewProofInputKey}
+            type="file"
+            accept=".pdf,.png,.jpg,.jpeg"
+            onChange={(e) => setRenewProofFile(e.target.files?.[0] || null)}
+          />
           <button className="btn-primary" onClick={renewNow}>
-            Update Renewal
+            Update Renewal + PDF
           </button>
         </div>
       )}

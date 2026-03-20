@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { db, storage } from '../firebase';
+import { buildSeedDemoDocuments } from '../utils/demoDocumentProfiles';
 
 export const fetchCertificates = async (uid, role = 'user') => {
   const base = collection(db, 'certificates');
@@ -49,52 +50,7 @@ export const seedDemoCertificates = async (uid) => {
     return { inserted: 0, message: 'Missing uid for demo seed.' };
   }
 
-  const demoCertificates = [
-    {
-      title: 'Cisco Certified Network Associate (CCNA)',
-      issuer: 'Cisco',
-      category: 'Networking',
-      issueDate: '2024-03-10',
-      expiryDate: '2027-03-10',
-      credentialId: 'CISCO-CCNA-240310',
-      credentialUrl: 'https://www.cisco.com/',
-      notes: 'Demo certificate for dashboard testing.',
-      verified: true,
-    },
-    {
-      title: 'Google IT Support Professional Certificate',
-      issuer: 'Coursera',
-      category: 'IT Support',
-      issueDate: '2023-11-21',
-      expiryDate: '2026-11-21',
-      credentialId: 'COURSERA-GITSP-231121',
-      credentialUrl: 'https://www.coursera.org/',
-      notes: 'Demo certificate for dashboard testing.',
-      verified: true,
-    },
-    {
-      title: 'AWS Certified Solutions Architect - Associate',
-      issuer: 'AWS',
-      category: 'Cloud',
-      issueDate: '2024-01-15',
-      expiryDate: '2027-01-15',
-      credentialId: 'AWS-SAA-240115',
-      credentialUrl: 'https://aws.amazon.com/certification/',
-      notes: 'Demo certificate for dashboard testing.',
-      verified: true,
-    },
-    {
-      title: 'ServiceNow Certified System Administrator',
-      issuer: 'ServiceNow',
-      category: 'ITSM',
-      issueDate: '2024-05-08',
-      expiryDate: '2027-05-08',
-      credentialId: 'SNOW-CSA-240508',
-      credentialUrl: 'https://www.servicenow.com/services/training-and-certification.html',
-      notes: 'Demo certificate for dashboard testing.',
-      verified: true,
-    },
-  ];
+  const demoCertificates = buildSeedDemoDocuments();
 
   try {
     let inserted = 0;
@@ -117,7 +73,7 @@ export const seedDemoCertificates = async (uid) => {
       inserted += 1;
     }
 
-    return { inserted, message: `Inserted ${inserted} demo certificates.` };
+    return { inserted, message: `Inserted ${inserted} demo documents/certificates.` };
   } catch (error) {
     console.error('seedDemoCertificates Firebase error:', error);
     return { inserted: 0, message: error?.message || String(error) };

@@ -6,20 +6,10 @@ import BarChart from "../../components/BarChart";
 import { useAuth } from "../../contexts/AuthContext";
 import { db, storage } from "../../firebase";
 import { removeCertificate } from "../../services/certificateService";
-import { formatDate, getCertificateStatus } from "../../utils/certificateUtils";
+import { formatDate, getCertificateStatus, isAllowedFile } from "../../utils/certificateUtils";
+import { buildDemoDocumentRecord } from "../../utils/demoDocumentProfiles";
 
 const DEMO_CERT_TOTAL = 20;
-const ISSUERS = ["AWS", "Cisco", "Google", "Microsoft", "Oracle", "Coursera", "ServiceNow"];
-const CATEGORIES = ["Cloud", "Networking", "Security", "Data", "DevOps", "IT Support"];
-const TITLES = [
-  "Solutions Architect",
-  "Cloud Practitioner",
-  "Security Analyst",
-  "Network Associate",
-  "Data Engineer",
-  "DevOps Engineer",
-  "System Administrator",
-];
 
 const emptyForm = {
   title: "",
@@ -33,34 +23,13 @@ const emptyForm = {
   file: null,
 };
 
-const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-const pick = (items) => items[randInt(0, items.length - 1)];
-const toIso = (date) => date.toISOString().slice(0, 10);
-const randomDateBetween = (start, end) =>
-  new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
-
 const buildDemoCertificates = (uid = "demo-user") => {
-  const now = new Date();
-  return Array.from({ length: DEMO_CERT_TOTAL }, (_, i) => {
-    const n = String(i + 1).padStart(3, "0");
-    const issue = randomDateBetween(new Date(2023, 0, 1), new Date(2025, 5, 1));
-    const expiry = randomDateBetween(new Date(now.getTime() - 90 * 86400000), new Date(now.getTime() + 420 * 86400000));
-    return {
-      id: `demo-user-cert-${n}`,
-      userId: uid,
+  return Array.from({ length: DEMO_CERT_TOTAL }, (_, i) =>
+    buildDemoDocumentRecord({
+      id: `demo-user-cert-${String(i + 1).padStart(3, "0")}`,
       uid,
-      title: `${pick(TITLES)} ${n}`,
-      issuer: pick(ISSUERS),
-      category: pick(CATEGORIES),
-      issueDate: toIso(issue),
-      expiryDate: toIso(expiry),
-      credentialId: "",
-      credentialUrl: "",
-      notes: "Random demo certificate",
-      proofUrl: "",
-      verified: Math.random() < 0.7,
-    };
-  });
+    })
+  );
 };
 
 const daysLeft = (expiryDate) => {
@@ -92,6 +61,9 @@ export default function CertificatesPage() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [courseQuery, setCourseQuery] = useState("");
+  const [quickTitle, setQuickTitle] = useState("");
+  const [quickProofFile, setQuickProofFile] = useState(null);
+  const [quickProofInputKey, setQuickProofInputKey] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterIssuer, setFilterIssuer] = useState("all");
 
@@ -178,21 +150,31 @@ export default function CertificatesPage() {
 
   const useCourseInForm = () => {
     const text = courseQuery.trim();
-    if (!text) {
-      alert("Type a course name first.");
+    const titleText = quickTitle.trim();
+    const resolvedTitle = titleText || text;
+    if (!resolvedTitle) {
+      alert("Type certificate title or course name first.");
+      return;
+    }
+    if (quickProofFile && !isAllowedFile(quickProofFile)) {
+      alert("Invalid file. Use PDF/PNG/JPG up to 5MB.");
       return;
     }
 
     setOpen(true);
     setForm((prev) => ({
       ...prev,
-      title: prev.title || text,
+      title: prev.title || resolvedTitle,
       issuer: prev.issuer || (text.toLowerCase().includes("coursera") ? "Coursera" : prev.issuer),
       category: prev.category || "Online Course",
       credentialUrl:
         prev.credentialUrl ||
-        (text.toLowerCase().includes("coursera") ? courseraSearchUrl(text) : googleCourseUrl(text)),
+        (text.toLowerCase().includes("coursera") ? courseraSearchUrl(text) : googleCourseUrl(text || resolvedTitle)),
+      file: prev.file || quickProofFile,
     }));
+    setQuickProofInputKey((k) => k + 1);
+    setQuickProofFile(null);
+    setQuickTitle("");
   };
 
   const handleSave = async (e) => {
@@ -204,6 +186,7 @@ export default function CertificatesPage() {
       if (!currentUser?.uid) throw new Error("User not logged in");
       if (!form.title || !form.issuer || !form.category) throw new Error("Fill required fields");
       if (!form.issueDate || !form.expiryDate) throw new Error("Select dates");
+      if (!isAllowedFile(form.file)) throw new Error("Invalid file. Use PDF/PNG/JPG up to 5MB.");
 
       if (useDemoData) {
         const demoItem = {
@@ -345,7 +328,7 @@ export default function CertificatesPage() {
 
       {useDemoData && (
         <p style={{ marginBottom: 10, fontSize: 13, opacity: 0.8 }}>
-          Demo mode is ON with random certificates data.
+          Demo mode is ON with random documents and certificates data.
         </p>
       )}
 
@@ -358,6 +341,17 @@ export default function CertificatesPage() {
             placeholder="Type course/provider name (example: Coursera Data Analytics)"
             value={courseQuery}
             onChange={(e) => setCourseQuery(e.target.value)}
+          />
+          <input
+            placeholder="Certificate title (optional, used while adding)"
+            value={quickTitle}
+            onChange={(e) => setQuickTitle(e.target.value)}
+          />
+          <input
+            key={quickProofInputKey}
+            type="file"
+            accept=".pdf,.png,.jpg,.jpeg"
+            onChange={(e) => setQuickProofFile(e.target.files?.[0] || null)}
           />
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button type="button" className="btn-secondary" onClick={openGoogleSearch}>
@@ -373,12 +367,12 @@ export default function CertificatesPage() {
               Search Coursera
             </button>
             <button type="button" className="btn-primary" onClick={useCourseInForm}>
-              Use in Add Certificate
+              Use in Add Certificate + PDF
             </button>
           </div>
         </div>
         <p style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
-          After searching/login on external sites, use the button above to prefill and save certificate details.
+          After searching/login on external sites, use the button above to prefill title and optional PDF proof.
         </p>
       </section>
 
@@ -404,7 +398,7 @@ export default function CertificatesPage() {
           <form onSubmit={handleSave} className="grid-form">
             <input
               type="text"
-              placeholder="title"
+              placeholder="certificate title"
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
             />

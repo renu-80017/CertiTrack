@@ -1,29 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { db } from "../../firebase";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { db, storage } from "../../firebase";
 import { fetchCertificates, removeCertificate } from "../../services/certificateService";
-import { formatDate, getCertificateStatus } from "../../utils/certificateUtils";
+import { formatDate, getCertificateStatus, isAllowedFile } from "../../utils/certificateUtils";
 import BarChart from "../../components/BarChart";
+import { buildDemoDocumentRecord } from "../../utils/demoDocumentProfiles";
 
 const DEMO_CERT_TOTAL = 30;
-const ISSUERS = ["AWS", "Cisco", "Google", "Microsoft", "Oracle", "Coursera", "ServiceNow"];
-const CATEGORIES = ["Cloud", "Networking", "Security", "Data", "DevOps", "IT Support"];
-const TITLES = [
-  "Solutions Architect",
-  "Cloud Practitioner",
-  "Security Analyst",
-  "Network Associate",
-  "Data Engineer",
-  "DevOps Engineer",
-  "System Administrator",
-];
 
 const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-const pick = (items) => items[randInt(0, items.length - 1)];
 const toIso = (date) => date.toISOString().slice(0, 10);
-
-const randomDateBetween = (start, end) =>
-  new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
 
 const openInNewTab = (url) => {
   const win = window.open(url, "_blank", "noopener,noreferrer");
@@ -41,31 +28,13 @@ const buildDemoUsers = () => {
 
 const buildDemoCertificates = () => {
   const users = buildDemoUsers();
-  const now = new Date();
 
-  return Array.from({ length: DEMO_CERT_TOTAL }, (_, i) => {
-    const certNo = String(i + 1).padStart(3, "0");
-    const uid = users[randInt(0, users.length - 1)];
-    const issueDate = randomDateBetween(new Date(2023, 0, 1), new Date(2025, 6, 1));
-    const expiryDate = randomDateBetween(
-      new Date(now.getTime() - 120 * 86400000),
-      new Date(now.getTime() + 420 * 86400000)
-    );
-    return {
-      id: `demo-cert-${certNo}`,
-      uid,
-      userId: uid,
-      title: `${pick(TITLES)} ${certNo}`,
-      issuer: pick(ISSUERS),
-      category: pick(CATEGORIES),
-      issueDate: toIso(issueDate),
-      expiryDate: toIso(expiryDate),
-      verified: Math.random() < 0.7,
-      credentialId: "",
-      credentialUrl: "",
-      notes: "",
-    };
-  });
+  return Array.from({ length: DEMO_CERT_TOTAL }, (_, i) =>
+    buildDemoDocumentRecord({
+      id: `demo-cert-${String(i + 1).padStart(3, "0")}`,
+      uid: users[randInt(0, users.length - 1)],
+    })
+  );
 };
 
 const daysLeft = (expiryDate) => {
@@ -81,12 +50,15 @@ export default function AdminCertificates() {
   const [demoItems, setDemoItems] = useState(() => buildDemoCertificates());
   const [loading, setLoading] = useState(true);
   const [courseQuery, setCourseQuery] = useState("");
+  const [quickTitle, setQuickTitle] = useState("");
+  const [quickProofFile, setQuickProofFile] = useState(null);
+  const [quickProofInputKey, setQuickProofInputKey] = useState(0);
   const [targetUid, setTargetUid] = useState("");
 
   const load = async (mounted = { v: true }) => {
     try {
       setLoading(true);
-      const data = await fetchCertificates(null, true);
+      const data = await fetchCertificates(null, "admin");
       if (mounted.v) setLiveItems(data || []);
     } catch (err) {
       console.error("AdminCertificates load failed", err);
@@ -148,6 +120,9 @@ export default function AdminCertificates() {
     }));
   }, [filtered]);
 
+  const getProofLink = (item) =>
+    item.proofUrl || item.fileUrl || item.fileURL || item.attachmentUrl || null;
+
   const onDelete = async (item) => {
     if (useDemoData) {
       setDemoItems((prev) => prev.filter((x) => x.id !== item.id));
@@ -157,10 +132,15 @@ export default function AdminCertificates() {
     await load();
   };
 
-  const addFromSource = async (source, ownerIdOverride = null) => {
+  const addFromSource = async (source, ownerIdOverride = null, proofFile = null) => {
     const ownerId = ownerIdOverride || source.userId || source.uid || targetUid.trim();
     if (!ownerId) {
       alert("Enter target User UID first.");
+      return;
+    }
+
+    if (proofFile && !isAllowedFile(proofFile)) {
+      alert("Invalid file. Use PDF/PNG/JPG up to 5MB.");
       return;
     }
 
@@ -182,39 +162,61 @@ export default function AdminCertificates() {
     if (useDemoData) {
       const demoCert = {
         ...payload,
+        proofUrl: proofFile ? URL.createObjectURL(proofFile) : payload.proofUrl || "",
         id: `demo-cert-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       };
       setDemoItems((prev) => [demoCert, ...prev]);
+      setQuickProofFile(null);
+      setQuickProofInputKey((k) => k + 1);
       return;
+    }
+
+    let proofUrl = payload.proofUrl || "";
+    let proofPath = "";
+    if (proofFile) {
+      const fileRef = ref(storage, `certificates/${ownerId}/${Date.now()}_${proofFile.name}`);
+      await uploadBytes(fileRef, proofFile);
+      proofUrl = await getDownloadURL(fileRef);
+      proofPath = fileRef.fullPath;
     }
 
     await addDoc(collection(db, "certificates"), {
       ...payload,
+      proofUrl,
+      proofPath,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+    setQuickProofFile(null);
+    setQuickProofInputKey((k) => k + 1);
     await load();
   };
 
   const addFromCourseSearch = async () => {
-    const text = courseQuery.trim();
-    if (!text) {
-      alert("Type a course name first.");
+    const searchText = courseQuery.trim();
+    const titleText = quickTitle.trim();
+    const resolvedTitle = titleText || searchText;
+
+    if (!resolvedTitle) {
+      alert("Type certificate title or course/provider name first.");
       return;
     }
 
-    const issuerGuess = text.toLowerCase().includes("coursera") ? "Coursera" : "Unknown";
+    const lookupText = searchText || resolvedTitle;
+    const issuerGuess = lookupText.toLowerCase().includes("coursera") ? "Coursera" : "Unknown";
 
     await addFromSource({
-      title: text,
+      title: resolvedTitle,
       issuer: issuerGuess,
       category: "Online Course",
       issueDate: toIso(new Date()),
       expiryDate: toIso(new Date(Date.now() + 365 * 86400000)),
-      credentialUrl: text.toLowerCase().includes("coursera") ? courseraSearchUrl(text) : googleCourseUrl(text),
+      credentialUrl:
+        lookupText.toLowerCase().includes("coursera") ? courseraSearchUrl(lookupText) : googleCourseUrl(lookupText),
       notes: "Added from admin course search.",
       verified: false,
-    });
+    }, null, quickProofFile);
+    setQuickTitle("");
   };
 
   const openGoogleSearch = () => {
@@ -259,7 +261,7 @@ export default function AdminCertificates() {
 
       {useDemoData && (
         <p style={{ marginBottom: 10, fontSize: 13, opacity: 0.8 }}>
-          Demo mode is ON with random certificates data.
+          Demo mode is ON with random documents and certificates data.
         </p>
       )}
 
@@ -274,9 +276,20 @@ export default function AdminCertificates() {
             onChange={(e) => setCourseQuery(e.target.value)}
           />
           <input
+            placeholder="Certificate title (optional, used while adding)"
+            value={quickTitle}
+            onChange={(e) => setQuickTitle(e.target.value)}
+          />
+          <input
             placeholder="Target User UID (required for add)"
             value={targetUid}
             onChange={(e) => setTargetUid(e.target.value)}
+          />
+          <input
+            key={quickProofInputKey}
+            type="file"
+            accept=".pdf,.png,.jpg,.jpeg"
+            onChange={(e) => setQuickProofFile(e.target.files?.[0] || null)}
           />
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button type="button" className="btn-secondary" onClick={openGoogleSearch}>
@@ -292,12 +305,12 @@ export default function AdminCertificates() {
               Search Coursera
             </button>
             <button type="button" className="btn-primary" onClick={addFromCourseSearch}>
-              Add Certificate
+              Add Certificate + PDF
             </button>
           </div>
         </div>
         <p style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
-          External websites cannot auto-sync course details. After search/login, use Add Certificate or Add Copy.
+          External websites cannot auto-sync course details. After search/login, use Add Certificate + PDF or Add Copy.
         </p>
       </section>
 
@@ -333,6 +346,7 @@ export default function AdminCertificates() {
               <th>Expiry</th>
               <th>Days Left</th>
               <th>Status</th>
+              <th>PDF/Proof</th>
               <th>Add Certificate</th>
               <th>Actions</th>
             </tr>
@@ -352,6 +366,15 @@ export default function AdminCertificates() {
                   <td>{daysLeft(item.expiryDate) ?? "-"}</td>
                   <td>
                     <span className={`status ${status.toLowerCase().replace(" ", "-")}`}>{status}</span>
+                  </td>
+                  <td>
+                    {getProofLink(item) ? (
+                      <a href={getProofLink(item)} target="_blank" rel="noreferrer">
+                        Open
+                      </a>
+                    ) : (
+                      "-"
+                    )}
                   </td>
                   <td>
                     <button type="button" onClick={() => addFromSource({ ...item, title: `${item.title} Copy` })}>

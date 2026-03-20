@@ -6,38 +6,12 @@ import { db } from "../../firebase";
 import { formatDate, getCertificateStatus } from "../../utils/certificateUtils";
 import PieChart from "../../components/PieChart";
 import BarChart from "../../components/BarChart";
+import { buildDemoDocumentRecord } from "../../utils/demoDocumentProfiles";
 
 const DEMO_CERT_TOTAL = 18;
-const ISSUERS = ["AWS", "Cisco", "Google", "Microsoft", "Oracle", "Coursera", "ServiceNow"];
-const CATEGORIES = ["Cloud", "Networking", "Security", "Data", "DevOps", "IT Support"];
-const TITLES = [
-  "Solutions Architect",
-  "Cloud Practitioner",
-  "Security Analyst",
-  "Network Associate",
-  "Data Engineer",
-  "DevOps Engineer",
-  "System Administrator",
-];
-
-const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-const pick = (items) => items[randInt(0, items.length - 1)];
-const toIso = (date) => date.toISOString().slice(0, 10);
 
 const randomDateBetween = (start, end) =>
   new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
-
-const createDemoCert = (id, uid, expiryDate) => ({
-  id,
-  userId: uid,
-  uid,
-  title: `${pick(TITLES)} ${id.slice(-3)}`,
-  issuer: pick(ISSUERS),
-  category: pick(CATEGORIES),
-  issueDate: toIso(randomDateBetween(new Date(2023, 0, 1), new Date(2025, 6, 1))),
-  expiryDate: toIso(expiryDate),
-  verified: Math.random() < 0.7,
-});
 
 const buildDemoCertificates = (uid = "demo-user") => {
   const now = new Date();
@@ -48,17 +22,37 @@ const buildDemoCertificates = (uid = "demo-user") => {
 
   for (let i = 0; i < 2; i += 1) {
     const expiry = randomDateBetween(new Date(now.getFullYear() - 1, 0, 1), new Date(now.getTime() - 86400000));
-    certs.push(createDemoCert(mkId(), uid, expiry));
+    certs.push(
+      buildDemoDocumentRecord({
+        id: mkId(),
+        uid,
+        expiryDate: expiry,
+        allowNoExpiryProfile: false,
+      })
+    );
   }
 
   for (let i = 0; i < 4; i += 1) {
     const expiry = randomDateBetween(new Date(now.getTime() + 86400000), new Date(now.getTime() + 30 * 86400000));
-    certs.push(createDemoCert(mkId(), uid, expiry));
+    certs.push(
+      buildDemoDocumentRecord({
+        id: mkId(),
+        uid,
+        expiryDate: expiry,
+        allowNoExpiryProfile: false,
+      })
+    );
   }
 
   while (certs.length < DEMO_CERT_TOTAL) {
     const expiry = randomDateBetween(new Date(now.getTime() + 31 * 86400000), new Date(now.getTime() + 420 * 86400000));
-    certs.push(createDemoCert(mkId(), uid, expiry));
+    certs.push(
+      buildDemoDocumentRecord({
+        id: mkId(),
+        uid,
+        expiryDate: expiry,
+      })
+    );
   }
 
   return certs;
@@ -185,7 +179,7 @@ export default function UserDashboard() {
 
       {useDemoData && (
         <p style={{ marginBottom: 10, fontSize: 13, opacity: 0.8 }}>
-          Demo mode is ON with randomized user dashboard data.
+          Demo mode is ON with randomized dashboard data across certificates and personal/legal documents.
         </p>
       )}
 
